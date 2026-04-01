@@ -224,7 +224,6 @@ function detectPinch(landmarks) {
 
 function drawFaceLandmarks(canvasCtx, landmarks, width, height) {
     canvasCtx.save();
-    canvasCtx.clearRect(0, 0, width, height);
     canvasCtx.scale(-1, 1);
     canvasCtx.translate(-width, 0);
     
@@ -295,15 +294,6 @@ function onFaceResults(results) {
         Engine.rawGestures.eyeDistance = calculateEyeDistance(smoothed);
         Engine.rawGestures.isFaceDetected = true;
         
-        // Draw tracking
-        if (Engine.trackingCtx && Engine.trackingCanvas) {
-            drawFaceLandmarks(
-                Engine.trackingCtx,
-                smoothed,
-                Engine.trackingCanvas.width,
-                Engine.trackingCanvas.height
-            );
-        }
         
         // Ambient light check
         if (results.image && Engine.onAmbientLight) {
@@ -331,15 +321,7 @@ function onHandsResults(results) {
         Engine.rawGestures.handPinch = pinch.isPinched;
         Engine.rawGestures.handPosition = pinch.position;
         Engine.rawGestures.isHandDetected = true;
-        
-        if (Engine.trackingCtx && Engine.trackingCanvas) {
-            drawHandLandmarks(
-                Engine.trackingCtx,
-                landmarks,
-                Engine.trackingCanvas.width,
-                Engine.trackingCanvas.height
-            );
-        }
+        Engine.rawHandLandmarks = landmarks;
         
         if (Engine.onHandsResults) {
             Engine.onHandsResults(landmarks, Engine.gestures);
@@ -405,6 +387,29 @@ function startRafLoop() {
         Engine.gestures.isHandDetected = Engine.rawGestures.isHandDetected;
         Engine.gestures.isFaceDetected = Engine.rawGestures.isFaceDetected;
         
+        // Clear tracking canvas and draw saved state
+        if (Engine.trackingCtx && Engine.trackingCanvas) {
+            Engine.trackingCtx.clearRect(0, 0, Engine.trackingCanvas.width, Engine.trackingCanvas.height);
+
+            if (Engine.rawGestures.isFaceDetected && Engine.smoothedLandmarks) {
+                drawFaceLandmarks(
+                    Engine.trackingCtx,
+                    Engine.smoothedLandmarks,
+                    Engine.trackingCanvas.width,
+                    Engine.trackingCanvas.height
+                );
+            }
+
+            if (Engine.rawGestures.isHandDetected && Engine.rawHandLandmarks) {
+                drawHandLandmarks(
+                    Engine.trackingCtx,
+                    Engine.rawHandLandmarks,
+                    Engine.trackingCanvas.width,
+                    Engine.trackingCanvas.height
+                );
+            }
+        }
+
         // Call face callback with smoothed data
         if (Engine.onFaceResults && Engine.smoothedLandmarks) {
             Engine.onFaceResults(Engine.smoothedLandmarks, Engine.gestures);

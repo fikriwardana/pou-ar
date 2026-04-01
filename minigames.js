@@ -346,6 +346,7 @@ class HeadRacing extends MiniGame {
         this.roadMarkers = [];
         this.boostActive = false;
         this.boostTimer = 0;
+        this.accumulatedScore = 0;
     }
     
     init() {
@@ -362,6 +363,7 @@ class HeadRacing extends MiniGame {
         this.particles = [];
         this.roadMarkers = [];
         this.score = 0;
+        this.accumulatedScore = 0;
         this.boostActive = false;
         this.boostTimer = 0;
         
@@ -471,8 +473,9 @@ class HeadRacing extends MiniGame {
             // Check collision
             const dx = Math.abs(this.pou.x - obstacle.x);
             const dy = Math.abs(this.pou.y - obstacle.y);
-            if (dx < 0.06 && dy < 0.08) {
+            if (!obstacle.hit && dx < 0.06 && dy < 0.08) {
                 // Hit obstacle - slow down
+                obstacle.hit = true;
                 this.pou.speed = Math.max(200, this.pou.speed - 50);
                 this.createExplosion(obstacle.x, obstacle.y);
             }
@@ -506,7 +509,12 @@ class HeadRacing extends MiniGame {
         this.coins = this.coins.filter(c => c.y < 1.2);
         
         // Increase score
-        this.addScore(Math.floor(this.pou.speed * this.pou.boostMultiplier * deltaTime * 0.1));
+        this.accumulatedScore += this.pou.speed * this.pou.boostMultiplier * deltaTime * 0.1;
+        if (this.accumulatedScore >= 1) {
+            const pointsToAdd = Math.floor(this.accumulatedScore);
+            this.addScore(pointsToAdd);
+            this.accumulatedScore -= pointsToAdd;
+        }
     }
     
     createExplosion(x, y) {

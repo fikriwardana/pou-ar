@@ -48,8 +48,13 @@ const Game = {
     onboarding: {
         sky: false,
         racing: false,
-        food: false
-    }
+        food: false,
+        timeoutId: null
+    },
+
+    // Game loop state
+    gameLoopId: null,
+    modeSwitchTimeoutId: null
 };
 
 // ============================================
@@ -161,7 +166,7 @@ function showCameraModal() {
 
 async function requestCameraPermission() {
     const granted = await Engine.requestCameraPermission();
-    if (granted) {
+    if (granted && !Engine.isRunning()) {
         await initializeEngine();
     }
 }
@@ -293,6 +298,9 @@ function switchMode(mode) {
     // Update current mode
     Game.currentMode = mode;
     
+    if (Game.modeSwitchTimeoutId) clearTimeout(Game.modeSwitchTimeoutId);
+    if (Game.onboarding.timeoutId) clearTimeout(Game.onboarding.timeoutId);
+
     // Update navigation
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -308,12 +316,16 @@ function switchMode(mode) {
     });
     
     // Show selected mode with fade
-    setTimeout(() => {
+    Game.modeSwitchTimeoutId = setTimeout(() => {
+        if (Game.currentMode !== mode) return; // double check mode hasn't changed
+
         if (mode === 'care') {
             const careMode = document.getElementById('careMode');
             if (careMode) {
                 careMode.classList.add('active');
-                setTimeout(() => careMode.style.opacity = '1', 50);
+                setTimeout(() => {
+                    if (Game.currentMode === 'care') careMode.style.opacity = '1';
+                }, 50);
             }
             MiniGames.stop();
             setPouExpression('normal');
@@ -338,12 +350,16 @@ function showOnboarding(mode) {
         'food': 'onboardingFood'
     }[mode];
     
+    // Hide all overlays first
+    document.querySelectorAll('.onboarding-overlay').forEach(el => el.classList.remove('active'));
+
     const overlay = document.getElementById(overlayId);
     if (overlay) {
         overlay.classList.add('active');
         
         // Auto-dismiss after 3 seconds
-        setTimeout(() => {
+        Game.onboarding.timeoutId = setTimeout(() => {
+            if (Game.currentMode !== mode) return; // cancel if mode changed
             overlay.classList.remove('active');
             Game.onboarding[mode] = true;
             startMiniGame(mode);
@@ -534,11 +550,11 @@ function handleFoodDragTouch(e) {
 function handleFoodDrop(e) {
     if (!Game.foodDrag.isDragging) return;
     
-    const clientX = e.clientX || (e.changedTouches && e.changedTouches[0].clientX);
-    const clientY = e.clientY || (e.changedTouches && e.changedTouches[0].clientY);
+    const clientX = e.clientX !== undefined ? e.clientX : (e.changedTouches && e.changedTouches[0].clientX);
+    const clientY = e.clientY !== undefined ? e.clientY : (e.changedTouches && e.changedTouches[0].clientY);
     
     const pou = document.getElementById('pou');
-    if (pou && clientX && clientY) {
+    if (pou && clientX !== undefined && clientY !== undefined) {
         const pouRect = pou.getBoundingClientRect();
         const isOverPou = 
             clientX >= pouRect.left && 
@@ -601,8 +617,12 @@ function updateStatusBars() {
 }
 
 function startGameLoop() {
+    if (Game.gameLoopId) {
+        clearInterval(Game.gameLoopId);
+    }
+
     // Decay stats over time
-    setInterval(() => {
+    Game.gameLoopId = setInterval(() => {
         const now = Date.now();
         
         // Hunger decay
@@ -730,11 +750,12 @@ async function sharePhoto() {
     }
 }
 
-function toggleCamera() {
+async function toggleCamera() {
     Game.isCameraOn = !Game.isCameraOn;
     
     if (Game.isCameraOn) {
-        Engine.start();
+        const started = await Engine.start();
+        Game.isCameraOn = started;
     } else {
         Engine.stop();
     }
