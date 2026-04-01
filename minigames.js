@@ -545,6 +545,7 @@ class HeadRacing extends MiniGame {
     }
     
     createExplosion(x, y) {
+        if (this.particles.length > 50) return; // Particle limit
         for (let i = 0; i < 10; i++) {
             this.particles.push({
                 x: x,
@@ -558,6 +559,7 @@ class HeadRacing extends MiniGame {
     }
     
     createSparkle(x, y) {
+        if (this.particles.length > 50) return; // Particle limit
         for (let i = 0; i < 5; i++) {
             this.particles.push({
                 x: x,
@@ -907,6 +909,7 @@ class FoodFall extends MiniGame {
     }
     
     createCatchParticles(x, y, foodType) {
+        if (this.particles.length > 50) return; // Particle limit
         // Create sparkle particles
         for (let i = 0; i < 8; i++) {
             this.particles.push({

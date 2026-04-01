@@ -66,6 +66,8 @@ const Game = {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    loadGameState(); // Load persisted stats before mounting UI
+
     // Cache DOM Elements
     Game.elements.pou = document.getElementById('pou');
     Game.elements.scene = document.getElementById('scene');
@@ -495,11 +497,16 @@ function handleFaceDetected(landmarks, gestures) {
     const scene = Game.elements.scene;
     
     if (pou && scene && gestures.eyeDistance > 0) {
-        const baseScale = 1;
         const scaleFactor = 0.5 + gestures.eyeDistance * 2;
         const scale = Math.max(0.7, Math.min(1.3, scaleFactor));
         
-        scene.style.transform = `scale(${scale})`;
+        // Prevent layout thrashing and jitter by requiring a minimum change
+        // Avoid setting transform every frame if it's visually imperceptible.
+        const currentScale = parseFloat(scene.dataset.scale) || 1;
+        if (Math.abs(currentScale - scale) > 0.05) {
+            scene.style.transform = `scale(${scale})`;
+            scene.dataset.scale = scale;
+        }
     }
     
     // In care mode, check for interactions
@@ -677,6 +684,38 @@ function feedPou() {
 // Status Management
 // ============================================
 
+function loadGameState() {
+    try {
+        const saved = localStorage.getItem('pouGameState');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            Game.pou.hunger = parsed.hunger ?? Game.pou.hunger;
+            Game.pou.energy = parsed.energy ?? Game.pou.energy;
+            Game.pou.fun = parsed.fun ?? Game.pou.fun;
+            // Only accept past timestamps to avoid future time glitch
+            const now = Date.now();
+            Game.pou.lastFed = Math.min(now, parsed.lastFed ?? now);
+            Game.pou.lastPet = Math.min(now, parsed.lastPet ?? now);
+        }
+    } catch (e) {
+        console.warn('Could not load game state:', e);
+    }
+}
+
+function saveGameState() {
+    try {
+        localStorage.setItem('pouGameState', JSON.stringify({
+            hunger: Game.pou.hunger,
+            energy: Game.pou.energy,
+            fun: Game.pou.fun,
+            lastFed: Game.pou.lastFed,
+            lastPet: Game.pou.lastPet
+        }));
+    } catch (e) {
+        // Silently fail if localStorage is unavailable
+    }
+}
+
 function updateStatusBars() {
     const hungerBar = Game.elements.hungerBar;
     const energyBar = Game.elements.energyBar;
@@ -696,14 +735,25 @@ function startGameLoop() {
     Game.gameLoopId = setInterval(() => {
         const now = Date.now();
         
-        // Hunger decay
-        if (now - Game.pou.lastFed > 30000) {
+        // Safety bounds for monotonic time calculation:
+        // Cap offline drift to max 2 minutes (120000ms) logic equivalent per tick
+        // Prevents stats tanking drastically if the device clock skips forward
+        // or tab was suspended for a very long time.
+
+        const deltaFed = Math.min(now - Game.pou.lastFed, 120000);
+        if (deltaFed > 30000) {
             Game.pou.hunger = Math.max(0, Game.pou.hunger - 1);
+            // reset lastFed timer incrementally, not blindly to Date.now() to allow catching up cleanly without skipping
+            Game.pou.lastFed += 30000;
+            // Catch up drift case
+            if (Game.pou.lastFed > now) Game.pou.lastFed = now;
         }
         
-        // Fun decay
-        if (now - Game.pou.lastPet > 20000) {
+        const deltaPet = Math.min(now - Game.pou.lastPet, 120000);
+        if (deltaPet > 20000) {
             Game.pou.fun = Math.max(0, Game.pou.fun - 1);
+            Game.pou.lastPet += 20000;
+            if (Game.pou.lastPet > now) Game.pou.lastPet = now;
         }
         
         // Energy recovery when sleeping
@@ -713,17 +763,19 @@ function startGameLoop() {
             Game.pou.energy = Math.max(0, Game.pou.energy - 0.5);
         }
         
-        updateStatusBars();
-        
         // Clamp bounds securely to avoid > 100 or < 0
         Game.pou.hunger = Math.min(100, Math.max(0, Game.pou.hunger));
         Game.pou.energy = Math.min(100, Math.max(0, Game.pou.energy));
         Game.pou.fun = Math.min(100, Math.max(0, Game.pou.fun));
 
+        updateStatusBars();
+
         // Auto-sleep when energy is low
         if (Game.pou.energy < 10 && Game.pou.expression !== 'sleeping') {
             setPouExpression('sleeping');
         }
+
+        saveGameState(); // Persist changes
     }, 1000);
 }
 
@@ -1011,6 +1063,9 @@ function createSparkles(x, y, type = 'random') {
     const particles = Game.elements.particles;
     if (!particles) return;
     
+    // Prevent DOM explosion if spammed
+    if (particles.childElementCount > 40) return;
+
     const types = type === 'random' ? ['star', 'dot', 'heart'] : [type];
     const selectedType = types[Math.floor(Math.random() * types.length)];
     

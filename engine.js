@@ -122,7 +122,8 @@ function smoothLandmarks(newLandmarks, alpha = Engine.smoothingAlpha) {
     return Engine.smoothedLandmarks;
 }
 
-function smoothValue(current, target, alpha = Engine.smoothingAlpha) {
+function smoothValue(current, target, alpha = Engine.smoothingAlpha, deadzone = 0.005) {
+    if (Math.abs(current - target) < deadzone) return current;
     return lerp(current, target, alpha);
 }
 
@@ -200,7 +201,8 @@ function calculateEyeDistance(landmarks) {
 function getNosePosition(landmarks) {
     const nose = landmarks[1];
     if (!nose) return { x: 0.5, y: 0.5 };
-    return { x: nose.x, y: nose.y };
+    // Mirror X coordinate since camera feed is mirrored
+    return { x: 1 - nose.x, y: nose.y };
 }
 
 function calculateAmbientLight(imageData) {
@@ -232,11 +234,12 @@ function detectPinch(landmarks) {
     const pinchDistance = distance(thumbTip, indexTip);
     const adaptiveThreshold = handSize * 0.5;
     
+    // Mirror X coordinate since camera feed is mirrored
     return {
         isPinched: pinchDistance < adaptiveThreshold,
         distance: pinchDistance,
         position: {
-            x: (thumbTip.x + indexTip.x) / 2,
+            x: 1 - ((thumbTip.x + indexTip.x) / 2),
             y: (thumbTip.y + indexTip.y) / 2
         }
     };
