@@ -669,7 +669,7 @@ function hasCameraPermission() {
 // Export
 // ============================================
 
-window.Engine = {
+Object.assign(Engine, {
     init: initEngine,
     start: startEngine,
     stop: stopEngine,
@@ -686,4 +686,6 @@ window.Engine = {
     distance,
     clamp,
     smoothValue
-};
+});
+
+window.Engine = Engine;
