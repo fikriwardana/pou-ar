@@ -33,7 +33,7 @@ const Game = {
     // Voice chat state
     voice: {
         recognition: null,
-        synthesis: window.speechSynthesis,
+        synthesis: typeof window !== 'undefined' && window.speechSynthesis ? window.speechSynthesis : null,
         isListening: false,
         isSpeaking: false,
         isStarting: false
@@ -55,7 +55,10 @@ const Game = {
 
     // Game loop state
     gameLoopId: null,
-    modeSwitchTimeoutId: null
+    modeSwitchTimeoutId: null,
+
+    // Cached Elements
+    elements: {}
 };
 
 // ============================================
@@ -63,6 +66,16 @@ const Game = {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Cache DOM Elements
+    Game.elements.pou = document.getElementById('pou');
+    Game.elements.scene = document.getElementById('scene');
+    Game.elements.hungerBar = document.getElementById('hungerBar');
+    Game.elements.energyBar = document.getElementById('energyBar');
+    Game.elements.funBar = document.getElementById('funBar');
+    Game.elements.moodValue = document.getElementById('moodValue');
+    Game.elements.draggedFood = document.getElementById('draggedFood');
+    Game.elements.particles = document.getElementById('particles');
+
     // Global Error Boundary
     window.onerror = function(msg, url, line, col, error) {
         console.error(`Global Error: ${msg} at ${url}:${line}:${col}`, error);
@@ -325,10 +338,10 @@ function setupEventListeners() {
         }
     });
     
-    // Window resize
-    window.addEventListener('resize', () => {
-        MiniGames.resize();
-    });
+    // Window resize & orientation change
+    const handleResize = () => MiniGames.resize();
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
     
     // Close settings when clicking outside
     document.addEventListener('click', (e) => {
@@ -441,7 +454,7 @@ function startMiniGame(mode) {
 // ============================================
 
 function setPouExpression(expression) {
-    const pou = document.getElementById('pou');
+    const pou = Game.elements.pou;
     if (!pou) return;
     
     // Remove all expression classes
@@ -456,7 +469,7 @@ function setPouExpression(expression) {
 }
 
 function updateMoodDisplay() {
-    const moodValue = document.getElementById('moodValue');
+    const moodValue = Game.elements.moodValue;
     if (moodValue) {
         const moods = {
             'normal': '😐 Normal',
@@ -478,10 +491,10 @@ function updateMoodDisplay() {
 
 function handleFaceDetected(landmarks, gestures) {
     // Scale Pou based on eye distance (depth simulation)
-    const pou = document.getElementById('pou');
-    const scene = document.getElementById('scene');
+    const pou = Game.elements.pou;
+    const scene = Game.elements.scene;
     
-    if (pou && gestures.eyeDistance > 0) {
+    if (pou && scene && gestures.eyeDistance > 0) {
         const baseScale = 1;
         const scaleFactor = 0.5 + gestures.eyeDistance * 2;
         const scale = Math.max(0.7, Math.min(1.3, scaleFactor));
@@ -506,7 +519,7 @@ function handleFaceDetected(landmarks, gestures) {
 function handleHandsDetected(landmarks, gestures) {
     if (Game.currentMode !== 'care') return;
     
-    const pou = document.getElementById('pou');
+    const pou = Game.elements.pou;
     
     // Check if hand is over Pou (petting)
     if (pou && gestures.isHandDetected) {
@@ -570,7 +583,7 @@ function selectFood(foodType) {
     Game.foodDrag.selectedFood = foodType;
     Game.foodDrag.isDragging = true;
     
-    const draggedFood = document.getElementById('draggedFood');
+    const draggedFood = Game.elements.draggedFood;
     if (draggedFood) {
         const foodEmojis = {
             'apple': '🍎',
@@ -586,7 +599,7 @@ function selectFood(foodType) {
 function handleFoodDrag(e) {
     if (!Game.foodDrag.isDragging) return;
     
-    const draggedFood = document.getElementById('draggedFood');
+    const draggedFood = Game.elements.draggedFood;
     if (draggedFood) {
         draggedFood.style.left = e.clientX - 20 + 'px';
         draggedFood.style.top = e.clientY - 20 + 'px';
@@ -598,7 +611,7 @@ function handleFoodDragTouch(e) {
     e.preventDefault();
     
     const touch = e.touches[0];
-    const draggedFood = document.getElementById('draggedFood');
+    const draggedFood = Game.elements.draggedFood;
     if (draggedFood) {
         draggedFood.style.left = touch.clientX - 20 + 'px';
         draggedFood.style.top = touch.clientY - 20 + 'px';
@@ -611,7 +624,7 @@ function handleFoodDrop(e) {
     const clientX = e.clientX !== undefined ? e.clientX : (e.changedTouches && e.changedTouches[0].clientX);
     const clientY = e.clientY !== undefined ? e.clientY : (e.changedTouches && e.changedTouches[0].clientY);
     
-    const pou = document.getElementById('pou');
+    const pou = Game.elements.pou;
     if (pou && clientX !== undefined && clientY !== undefined) {
         const pouRect = pou.getBoundingClientRect();
         const isOverPou = 
@@ -629,7 +642,7 @@ function handleFoodDrop(e) {
     Game.foodDrag.isDragging = false;
     Game.foodDrag.selectedFood = null;
     
-    const draggedFood = document.getElementById('draggedFood');
+    const draggedFood = Game.elements.draggedFood;
     if (draggedFood) draggedFood.classList.remove('active');
     
     document.querySelectorAll('.food-item').forEach(item => {
@@ -665,9 +678,9 @@ function feedPou() {
 // ============================================
 
 function updateStatusBars() {
-    const hungerBar = document.getElementById('hungerBar');
-    const energyBar = document.getElementById('energyBar');
-    const funBar = document.getElementById('funBar');
+    const hungerBar = Game.elements.hungerBar;
+    const energyBar = Game.elements.energyBar;
+    const funBar = Game.elements.funBar;
     
     if (hungerBar) hungerBar.style.width = Game.pou.hunger + '%';
     if (energyBar) energyBar.style.width = Game.pou.energy + '%';
@@ -702,6 +715,11 @@ function startGameLoop() {
         
         updateStatusBars();
         
+        // Clamp bounds securely to avoid > 100 or < 0
+        Game.pou.hunger = Math.min(100, Math.max(0, Game.pou.hunger));
+        Game.pou.energy = Math.min(100, Math.max(0, Game.pou.energy));
+        Game.pou.fun = Math.min(100, Math.max(0, Game.pou.fun));
+
         // Auto-sleep when energy is low
         if (Game.pou.energy < 10 && Game.pou.expression !== 'sleeping') {
             setPouExpression('sleeping');
@@ -990,7 +1008,7 @@ function speakResponse(text) {
 // ============================================
 
 function createSparkles(x, y, type = 'random') {
-    const particles = document.getElementById('particles');
+    const particles = Game.elements.particles;
     if (!particles) return;
     
     const types = type === 'random' ? ['star', 'dot', 'heart'] : [type];

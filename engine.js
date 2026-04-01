@@ -79,8 +79,12 @@ function lerp(start, end, alpha) {
     return start + (end - start) * alpha;
 }
 
+function distanceSq(p1, p2) {
+    return Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2);
+}
+
 function distance(p1, p2) {
-    return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+    return Math.sqrt(distanceSq(p1, p2));
 }
 
 function clamp(value, min, max) {
@@ -132,11 +136,17 @@ function detectMouthOpen(landmarks) {
     const leftCorner = landmarks[61];
     const rightCorner = landmarks[291];
     
-    const mouthHeight = distance(upperLip, lowerLip);
-    const mouthWidth = distance(leftCorner, rightCorner);
-    const ratio = mouthHeight / mouthWidth;
+    if (!upperLip || !lowerLip || !leftCorner || !rightCorner) return 0;
+
+    const mouthHeightSq = distanceSq(upperLip, lowerLip);
+    const mouthWidthSq = distanceSq(leftCorner, rightCorner);
+
+    if (mouthWidthSq < 0.000001) return 0;
     
-    return clamp((ratio - 0.1) / 0.4, 0, 1);
+    // Using squared ratio avoids sqrt
+    const ratioSq = mouthHeightSq / mouthWidthSq;
+    // Original ratio approx 0.1 to 0.5 maps to ratioSq 0.01 to 0.25
+    return clamp((ratioSq - 0.01) / 0.24, 0, 1);
 }
 
 function detectEyebrowRaise(landmarks) {
@@ -148,22 +158,30 @@ function detectEyebrowRaise(landmarks) {
     const rightEyebrow = landmarks[334];
     const rightEyeBottom = landmarks[374];
     
-    const leftEyeHeight = distance(leftEyeTop, leftEyeBottom);
-    const leftBrowDistance = distance(leftEyebrow, leftEyeTop);
-    const leftRaise = leftBrowDistance / leftEyeHeight;
+    if (!leftEyeTop || !leftEyebrow || !leftEyeBottom || !rightEyeTop || !rightEyebrow || !rightEyeBottom) return 0;
+
+    const leftEyeHeightSq = distanceSq(leftEyeTop, leftEyeBottom);
+    const leftBrowDistanceSq = distanceSq(leftEyebrow, leftEyeTop);
+
+    const rightEyeHeightSq = distanceSq(rightEyeTop, rightEyeBottom);
+    const rightBrowDistanceSq = distanceSq(rightEyebrow, rightEyeTop);
+
+    if (leftEyeHeightSq < 0.000001 || rightEyeHeightSq < 0.000001) return 0;
     
-    const rightEyeHeight = distance(rightEyeTop, rightEyeBottom);
-    const rightBrowDistance = distance(rightEyebrow, rightEyeTop);
-    const rightRaise = rightBrowDistance / rightEyeHeight;
+    const leftRaiseSq = leftBrowDistanceSq / leftEyeHeightSq;
+    const rightRaiseSq = rightBrowDistanceSq / rightEyeHeightSq;
     
-    const avgRaise = (leftRaise + rightRaise) / 2;
-    return clamp((avgRaise - 0.8) / 0.5, 0, 1);
+    const avgRaiseSq = (leftRaiseSq + rightRaiseSq) / 2;
+    // Original raise 0.8 to 1.3 maps to sq approx 0.64 to 1.69
+    return clamp((avgRaiseSq - 0.64) / 1.05, 0, 1);
 }
 
 function detectHeadTilt(landmarks) {
     const leftEye = landmarks[33];
     const rightEye = landmarks[263];
     
+    if (!leftEye || !rightEye) return 0;
+
     const dx = rightEye.x - leftEye.x;
     const dy = rightEye.y - leftEye.y;
     const angleRad = Math.atan2(dy, dx);
@@ -175,11 +193,13 @@ function detectHeadTilt(landmarks) {
 function calculateEyeDistance(landmarks) {
     const leftEye = landmarks[33];
     const rightEye = landmarks[263];
-    return distance(leftEye, rightEye);
+    if (!leftEye || !rightEye) return 0;
+    return distance(leftEye, rightEye); // Keep distance here as it might be used directly for scaling
 }
 
 function getNosePosition(landmarks) {
     const nose = landmarks[1];
+    if (!nose) return { x: 0.5, y: 0.5 };
     return { x: nose.x, y: nose.y };
 }
 
@@ -355,74 +375,78 @@ function startRafLoop() {
             return;
         }
         
-        const deltaTime = timestamp - Engine.lastRafTime;
-        Engine.lastRafTime = timestamp;
-        
-        // Smooth all gesture values
-        Engine.gestures.nosePosition.x = smoothValue(
-            Engine.gestures.nosePosition.x,
-            Engine.rawGestures.nosePosition.x
-        );
-        Engine.gestures.nosePosition.y = smoothValue(
-            Engine.gestures.nosePosition.y,
-            Engine.rawGestures.nosePosition.y
-        );
-        Engine.gestures.mouthOpen = smoothValue(
-            Engine.gestures.mouthOpen,
-            Engine.rawGestures.mouthOpen
-        );
-        Engine.gestures.eyebrowRaise = smoothValue(
-            Engine.gestures.eyebrowRaise,
-            Engine.rawGestures.eyebrowRaise
-        );
-        Engine.gestures.headTilt = smoothValue(
-            Engine.gestures.headTilt,
-            Engine.rawGestures.headTilt
-        );
-        Engine.gestures.eyeDistance = smoothValue(
-            Engine.gestures.eyeDistance,
-            Engine.rawGestures.eyeDistance
-        );
-        Engine.gestures.handPosition.x = smoothValue(
-            Engine.gestures.handPosition.x,
-            Engine.rawGestures.handPosition.x
-        );
-        Engine.gestures.handPosition.y = smoothValue(
-            Engine.gestures.handPosition.y,
-            Engine.rawGestures.handPosition.y
-        );
-        
-        // Boolean values - use direct assignment with small threshold
-        Engine.gestures.handPinch = Engine.rawGestures.handPinch;
-        Engine.gestures.isHandDetected = Engine.rawGestures.isHandDetected;
-        Engine.gestures.isFaceDetected = Engine.rawGestures.isFaceDetected;
-        
-        // Clear tracking canvas and draw saved state
-        if (Engine.trackingCtx && Engine.trackingCanvas) {
-            Engine.trackingCtx.clearRect(0, 0, Engine.trackingCanvas.width, Engine.trackingCanvas.height);
+        try {
+            const deltaTime = timestamp - Engine.lastRafTime;
+            Engine.lastRafTime = timestamp;
 
-            if (Engine.rawGestures.isFaceDetected && Engine.smoothedLandmarks) {
-                drawFaceLandmarks(
-                    Engine.trackingCtx,
-                    Engine.smoothedLandmarks,
-                    Engine.trackingCanvas.width,
-                    Engine.trackingCanvas.height
-                );
+            // Smooth all gesture values
+            Engine.gestures.nosePosition.x = smoothValue(
+                Engine.gestures.nosePosition.x,
+                Engine.rawGestures.nosePosition.x
+            );
+            Engine.gestures.nosePosition.y = smoothValue(
+                Engine.gestures.nosePosition.y,
+                Engine.rawGestures.nosePosition.y
+            );
+            Engine.gestures.mouthOpen = smoothValue(
+                Engine.gestures.mouthOpen,
+                Engine.rawGestures.mouthOpen
+            );
+            Engine.gestures.eyebrowRaise = smoothValue(
+                Engine.gestures.eyebrowRaise,
+                Engine.rawGestures.eyebrowRaise
+            );
+            Engine.gestures.headTilt = smoothValue(
+                Engine.gestures.headTilt,
+                Engine.rawGestures.headTilt
+            );
+            Engine.gestures.eyeDistance = smoothValue(
+                Engine.gestures.eyeDistance,
+                Engine.rawGestures.eyeDistance
+            );
+            Engine.gestures.handPosition.x = smoothValue(
+                Engine.gestures.handPosition.x,
+                Engine.rawGestures.handPosition.x
+            );
+            Engine.gestures.handPosition.y = smoothValue(
+                Engine.gestures.handPosition.y,
+                Engine.rawGestures.handPosition.y
+            );
+
+            // Boolean values - use direct assignment with small threshold
+            Engine.gestures.handPinch = Engine.rawGestures.handPinch;
+            Engine.gestures.isHandDetected = Engine.rawGestures.isHandDetected;
+            Engine.gestures.isFaceDetected = Engine.rawGestures.isFaceDetected;
+
+            // Clear tracking canvas and draw saved state
+            if (Engine.trackingCtx && Engine.trackingCanvas) {
+                Engine.trackingCtx.clearRect(0, 0, Engine.trackingCanvas.width, Engine.trackingCanvas.height);
+
+                if (Engine.rawGestures.isFaceDetected && Engine.smoothedLandmarks) {
+                    drawFaceLandmarks(
+                        Engine.trackingCtx,
+                        Engine.smoothedLandmarks,
+                        Engine.trackingCanvas.width,
+                        Engine.trackingCanvas.height
+                    );
+                }
+
+                if (Engine.rawGestures.isHandDetected && Engine.rawHandLandmarks) {
+                    drawHandLandmarks(
+                        Engine.trackingCtx,
+                        Engine.rawHandLandmarks,
+                        Engine.trackingCanvas.width,
+                        Engine.trackingCanvas.height
+                    );
+                }
             }
 
-            if (Engine.rawGestures.isHandDetected && Engine.rawHandLandmarks) {
-                drawHandLandmarks(
-                    Engine.trackingCtx,
-                    Engine.rawHandLandmarks,
-                    Engine.trackingCanvas.width,
-                    Engine.trackingCanvas.height
-                );
+            // Call face callback with smoothed data
+            if (Engine.onFaceResults && Engine.smoothedLandmarks) {
+                Engine.onFaceResults(Engine.smoothedLandmarks, Engine.gestures);
             }
-        }
-
-        // Call face callback with smoothed data
-        if (Engine.onFaceResults && Engine.smoothedLandmarks) {
-            Engine.onFaceResults(Engine.smoothedLandmarks, Engine.gestures);
+        } catch (e) {
+            console.error('Error in RAF loop:', e);
         }
         
         Engine.rafId = requestAnimationFrame(rafLoop);
@@ -443,8 +467,9 @@ function stopRafLoop() {
 // ============================================
 
 function handleVisibilityChange() {
+    Engine.isVisible = !document.hidden;
+
     if (document.hidden) {
-        Engine.isVisible = false;
         Engine.wasRunningBeforeHidden = Engine.isRunning;
         
         if (Engine.camera) {
@@ -453,8 +478,6 @@ function handleVisibilityChange() {
         }
         stopRafLoop();
     } else {
-        Engine.isVisible = true;
-        
         if (Engine.wasRunningBeforeHidden && Engine.hasPermission) {
             Engine.camera.start().then(() => {
                 Engine.isRunning = true;
@@ -574,13 +597,17 @@ async function initCamera() {
         
         Engine.camera = new Camera(videoElement, {
             onFrame: async () => {
-                if (!Engine.isVisible) return;
+                if (!Engine.isVisible || videoElement.readyState < 2) return;
                 
-                if (Engine.faceMesh) {
-                    await Engine.faceMesh.send({ image: videoElement });
-                }
-                if (Engine.hands) {
-                    await Engine.hands.send({ image: videoElement });
+                try {
+                    if (Engine.faceMesh) {
+                        await Engine.faceMesh.send({ image: videoElement });
+                    }
+                    if (Engine.hands) {
+                        await Engine.hands.send({ image: videoElement });
+                    }
+                } catch (e) {
+                    console.error('Error processing frame:', e);
                 }
             },
             width: 640,

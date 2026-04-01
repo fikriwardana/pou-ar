@@ -56,11 +56,25 @@ class MiniGame {
         if (!this.isRunning) return;
         
         const currentTime = performance.now();
-        const deltaTime = (currentTime - this.lastTime) / 1000;
+        let deltaTime = (currentTime - this.lastTime) / 1000;
+
+        // Capping deltaTime to prevent huge physics jumps (e.g., after switching tabs)
+        if (deltaTime > 0.1) deltaTime = 0.1;
+        // FPS throttle: max ~60fps
+        if (deltaTime < 0.016) {
+            this.animationId = requestAnimationFrame(() => this.loop());
+            return;
+        }
+
         this.lastTime = currentTime;
         
-        this.update(deltaTime);
-        this.render();
+        try {
+            this.update(deltaTime);
+            if (this.ctx) this.render();
+        } catch (e) {
+            console.error('MiniGame loop error:', e);
+            this.isRunning = false;
+        }
         
         if (this.isRunning) {
             this.animationId = requestAnimationFrame(() => this.loop());
@@ -150,7 +164,9 @@ class SkyClimber extends MiniGame {
     }
     
     update(deltaTime) {
-        const gestures = window.Engine ? window.Engine.getGestures() : { headTilt: 0 };
+        const gestures = window.Engine && typeof window.Engine.getGestures === 'function'
+            ? window.Engine.getGestures()
+            : { headTilt: 0 };
         
         // Move Pou horizontally based on head tilt
         this.pou.x += gestures.headTilt * deltaTime * 1.5;
@@ -383,10 +399,12 @@ class HeadRacing extends MiniGame {
     }
     
     update(deltaTime) {
-        const gestures = window.Engine ? window.Engine.getGestures() : { 
-            nosePosition: { x: 0.5 },
-            eyebrowRaise: 0 
-        };
+        const gestures = window.Engine && typeof window.Engine.getGestures === 'function'
+            ? window.Engine.getGestures()
+            : {
+                nosePosition: { x: 0.5 },
+                eyebrowRaise: 0
+            };
         
         // Steer with nose X position
         const targetX = gestures.nosePosition.x;
@@ -787,10 +805,12 @@ class FoodFall extends MiniGame {
     }
     
     update(deltaTime) {
-        const gestures = window.Engine ? window.Engine.getGestures() : { 
-            nosePosition: { x: 0.5 },
-            mouthOpen: 0 
-        };
+        const gestures = window.Engine && typeof window.Engine.getGestures === 'function'
+            ? window.Engine.getGestures()
+            : {
+                nosePosition: { x: 0.5 },
+                mouthOpen: 0
+            };
         
         // Move Pou with nose
         const targetX = gestures.nosePosition.x;
@@ -1083,6 +1103,12 @@ const MiniGames = {
     },
     
     start(gameName) {
+        const validModes = ['sky', 'racing', 'food'];
+        if (!validModes.includes(gameName)) {
+            console.error(`MiniGames.start: Invalid mode '${gameName}'`);
+            return;
+        }
+
         // Stop current game
         if (this.currentGame) {
             this.currentGame.stop();
@@ -1099,9 +1125,6 @@ const MiniGames = {
             case 'food':
                 this.currentGame = this.foodFall;
                 break;
-            default:
-                this.currentGame = null;
-                return;
         }
         
         if (this.currentGame) {
