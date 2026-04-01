@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#87CEEB">
+    <meta name="description" content="POU AR SOLO - Virtual Pet AR Game with MediaPipe">
+    
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A5%94%3C/text%3E%3C/svg%3E">
+    
+    <title>POU AR SOLO - Virtual Pet AR</title>
+    
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js" crossorigin="anonymous"></script>
+    
+    <!-- html2canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Particle Container -->
+    <div class="particle-container" id="particles"></div>
+    
+    <!-- API Key Settings Modal -->
+    <div class="modal" id="apiKeyModal">
+        <div class="modal-content glass">
+            <h2>🔑 Gemini API Key</h2>
+            <p>Masukkan API key Gemini untuk fitur voice chat</p>
+            <input type="password" id="apiKeyInput" placeholder="Gemini API Key...">
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="saveApiKey()">Simpan</button>
+                <button class="btn-secondary" onclick="skipApiKey()">Lewati</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Photo Preview Modal -->
+    <div class="modal" id="photoModal">
+        <div class="modal-content glass">
+            <h2>📸 Photo Booth</h2>
+            <img id="photoPreview" alt="Preview">
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="downloadPhoto()">⬇️ Download</button>
+                <button class="btn-secondary" onclick="sharePhoto()">📤 Share</button>
+                <button class="btn-tertiary" onclick="closePhotoModal()">❌ Tutup</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Countdown Overlay -->
+    <div class="countdown-overlay" id="countdownOverlay">
+        <span id="countdownNumber">3</span>
+    </div>
+    
+    <!-- Flash Overlay -->
+    <div class="flash-overlay" id="flashOverlay"></div>
+    
+    <!-- Onboarding Overlays -->
+    <div class="onboarding-overlay" id="onboardingSky">
+        <div class="onboarding-content glass">
+            <div class="gesture-demo">
+                <div class="head-tilt-demo">
+                    <span class="demo-head">🙂</span>
+                    <div class="tilt-arrows">
+                        <span>⬅️</span>
+                        <span>➡️</span>
+                    </div>
+                </div>
+            </div>
+            <h3>Sky Climber</h3>
+            <p>Miringkan kepala ke <strong>kiri/kanan</strong> untuk mengendalikan Pou!</p>
+            <span class="auto-dismiss">Memulai dalam 3 detik...</span>
+        </div>
+    </div>
+    
+    <div class="onboarding-overlay" id="onboardingRacing">
+        <div class="onboarding-content glass">
+            <div class="gesture-demo">
+                <div class="nose-track-demo">
+                    <div class="track-line"></div>
+                    <span class="demo-nose">👃</span>
+                </div>
+                <div class="eyebrow-boost">
+                    <span class="demo-eyebrow">✨</span>
+                    <span>Angkat alis = BOOST!</span>
+                </div>
+            </div>
+            <h3>Head Racing</h3>
+            <p>Gerakkan <strong>hidung</strong> untuk belok, <strong>angkat alis</strong> untuk boost!</p>
+            <span class="auto-dismiss">Memulai dalam 3 detik...</span>
+        </div>
+    </div>
+    
+    <div class="onboarding-overlay" id="onboardingFood">
+        <div class="onboarding-content glass">
+            <div class="gesture-demo">
+                <div class="nose-catch-demo">
+                    <span class="demo-food">🍎</span>
+                    <span class="demo-pou-catch">🥔</span>
+                </div>
+                <div class="mouth-open-demo">
+                    <span class="demo-mouth">👄</span>
+                    <span>Buka mulut = Radius lebih besar!</span>
+                </div>
+            </div>
+            <h3>Food Fall</h3>
+            <p>Gerakkan <strong>hidung</strong> untuk menangkap, <strong>buka mulut</strong> untuk radius besar!</p>
+            <span class="auto-dismiss">Memulai dalam 3 detik...</span>
+        </div>
+    </div>
+    
+    <!-- Camera Permission Modal -->
+    <div class="modal" id="cameraModal">
+        <div class="modal-content glass">
+            <h2>📷 Izin Kamera Diperlukan</h2>
+            <p>POU AR SOLO membutuhkan akses kamera untuk melacak gerakan wajah dan tangan Anda.</p>
+            <p>Data kamera <strong>hanya diproses di perangkat Anda</strong> dan tidak dikirim ke server mana pun.</p>
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="requestCameraPermission()">Izinkan Kamera</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main Container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="glass">
+            <div class="logo">
+                <span class="logo-icon">🥔</span>
+                <span class="logo-text">POU AR SOLO</span>
+            </div>
+            <div class="header-actions">
+                <button class="icon-btn" id="micBtn" onclick="toggleVoiceChat()" title="Voice Chat">
+                    🎤
+                </button>
+                <button class="icon-btn" id="cameraBtn" onclick="takePhoto()" title="Photo Booth">
+                    📷
+                </button>
+                <button class="icon-btn" onclick="toggleSettings()" title="Settings">
+                    ⚙️
+                </button>
+            </div>
+        </header>
+        
+        <!-- Settings Panel -->
+        <div class="settings-panel glass" id="settingsPanel">
+            <h3>Pengaturan</h3>
+            <div class="setting-item">
+                <span>API Key Gemini</span>
+                <button class="btn-small" onclick="clearApiKey()">Hapus Key</button>
+            </div>
+            <div class="setting-item">
+                <span>Kamera</span>
+                <button class="btn-small" onclick="toggleCamera()">Matikan</button>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <main>
+            <!-- Camera Feed -->
+            <video id="inputVideo" class="input-video" playsinline muted></video>
+            
+            <!-- Game Canvas Container -->
+            <div class="game-container" id="gameContainer">
+                <!-- Care Mode - Pou Character -->
+                <div class="care-mode active" id="careMode">
+                    <div class="scene" id="scene">
+                        <div class="pou normal" id="pou">
+                            <div class="body">
+                                <div class="highlight"></div>
+                            </div>
+                            
+                            <!-- Anger Symbol -->
+                            <div class="anger-mark">💢</div>
+                            
+                            <!-- Veins -->
+                            <div class="vein left"></div>
+                            <div class="vein right"></div>
+                            <div class="vein center"></div>
+                            
+                            <div class="cheek left"></div>
+                            <div class="cheek right"></div>
+                            
+                            <div class="tear left"></div>
+                            <div class="tear right"></div>
+                            
+                            <div class="sweat left"></div>
+                            <div class="sweat right"></div>
+                            
+                            <div class="steam one"></div>
+                            <div class="steam two"></div>
+                            <div class="steam three"></div>
+                            
+                            <div class="snot"></div>
+                            
+                            <div class="arm left"></div>
+                            <div class="arm right"></div>
+                            <div class="leg left"></div>
+                            <div class="leg right"></div>
+                            
+                            <div class="eyes-container">
+                                <div class="eye-rig">
+                                    <div class="sclera">
+                                        <div class="iris">
+                                            <div class="pupil"></div>
+                                        </div>
+                                        <div class="eye-shine"></div>
+                                    </div>
+                                    <div class="eyelid upper"></div>
+                                    <div class="eyelid lower"></div>
+                                </div>
+                                <div class="eye-rig">
+                                    <div class="sclera">
+                                        <div class="iris">
+                                            <div class="pupil"></div>
+                                        </div>
+                                        <div class="eye-shine"></div>
+                                    </div>
+                                    <div class="eyelid upper"></div>
+                                    <div class="eyelid lower"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mouth-container">
+                                <div class="mouth">
+                                    <div class="tongue"></div>
+                                    <div class="teeth"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="shadow"></div>
+                    </div>
+                    
+                    <!-- Food Menu -->
+                    <div class="food-menu glass" id="foodMenu">
+                        <div class="food-item" data-food="apple" onclick="selectFood('apple')">🍎</div>
+                        <div class="food-item" data-food="pizza" onclick="selectFood('pizza')">🍕</div>
+                        <div class="food-item" data-food="icecream" onclick="selectFood('icecream')">🍦</div>
+                        <div class="food-item" data-food="burger" onclick="selectFood('burger')">🍔</div>
+                    </div>
+                    
+                    <!-- Dragged Food -->
+                    <div class="dragged-food" id="draggedFood"></div>
+                </div>
+                
+                <!-- Mini Game: Sky Climber -->
+                <div class="minigame sky-climber" id="skyClimber">
+                    <canvas id="skyClimberCanvas"></canvas>
+                    <div class="game-ui">
+                        <div class="score-display glass">Score: <span id="skyScore">0</span></div>
+                        <div class="instruction">Miringkan kepala untuk mengendalikan</div>
+                    </div>
+                </div>
+                
+                <!-- Mini Game: Head Racing -->
+                <div class="minigame head-racing" id="headRacing">
+                    <canvas id="headRacingCanvas"></canvas>
+                    <div class="game-ui">
+                        <div class="score-display glass">Score: <span id="racingScore">0</span></div>
+                        <div class="boost-indicator" id="boostIndicator">⚡ BOOST!</div>
+                        <div class="instruction">Gerakkan hidung • Angkat alis untuk boost</div>
+                    </div>
+                </div>
+                
+                <!-- Mini Game: Food Fall -->
+                <div class="minigame food-fall" id="foodFall">
+                    <canvas id="foodFallCanvas"></canvas>
+                    <div class="game-ui">
+                        <div class="score-display glass">Score: <span id="foodScore">0</span></div>
+                        <div class="catch-indicator" id="catchIndicator">👄 BUKA MULUT = RADIUS BESAR!</div>
+                        <div class="instruction">Gerakkan hidung • Buka mulut untuk radius besar</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tracking Visualization -->
+            <canvas id="trackingCanvas" class="tracking-canvas"></canvas>
+            
+            <!-- Status Panel -->
+            <div class="status-panel glass">
+                <div class="status-item">
+                    <span class="status-icon">😊</span>
+                    <span class="status-label">Mood</span>
+                    <span class="status-value" id="moodValue">Normal</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-icon">🍔</span>
+                    <span class="status-label">Hunger</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="hungerBar" style="width: 80%"></div>
+                    </div>
+                </div>
+                <div class="status-item">
+                    <span class="status-icon">⚡</span>
+                    <span class="status-label">Energy</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="energyBar" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div class="status-item">
+                    <span class="status-icon">🎮</span>
+                    <span class="status-label">Fun</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="funBar" style="width: 60%"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Navigation -->
+        <nav class="glass">
+            <button class="nav-btn active" data-mode="care" onclick="switchMode('care')">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">Care</span>
+            </button>
+            <button class="nav-btn" data-mode="sky" onclick="switchMode('sky')">
+                <span class="nav-icon">☁️</span>
+                <span class="nav-label">Sky</span>
+            </button>
+            <button class="nav-btn" data-mode="racing" onclick="switchMode('racing')">
+                <span class="nav-icon">🏎️</span>
+                <span class="nav-label">Race</span>
+            </button>
+            <button class="nav-btn" data-mode="food" onclick="switchMode('food')">
+                <span class="nav-icon">🍎</span>
+                <span class="nav-label">Catch</span>
+            </button>
+        </nav>
+    </div>
+    
+    <!-- Voice Chat Indicator -->
+    <div class="voice-indicator" id="voiceIndicator">
+        <div class="voice-waves">
+            <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <span class="voice-text">Mendengarkan...</span>
+    </div>
+    
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-content">
+            <div class="loading-pou">🥔</div>
+            <h2>POU AR SOLO</h2>
+            <p>Menginisialisasi mesin AR...</p>
+            <div class="loading-bar">
+                <div class="loading-fill" id="loadingFill"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="engine.js"></script>
+    <script src="minigames.js"></script>
+    <script src="game.js"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('✅ Service Worker registered'))
+                .catch(err => console.log('❌ Service Worker failed:', err));
+        }
+    </script>
+</body>
+</html>
