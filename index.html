@@ -39,8 +39,8 @@
             <p>Masukkan API key Gemini untuk fitur voice chat</p>
             <input type="password" id="apiKeyInput" placeholder="Gemini API Key...">
             <div class="modal-buttons">
-                <button class="btn-primary" onclick="saveApiKey()">Simpan</button>
-                <button class="btn-secondary" onclick="skipApiKey()">Lewati</button>
+                <button class="btn-primary" id="btnSaveApiKey">Simpan</button>
+                <button class="btn-secondary" id="btnSkipApiKey">Lewati</button>
             </div>
         </div>
     </div>
@@ -51,9 +51,9 @@
             <h2>📸 Photo Booth</h2>
             <img id="photoPreview" alt="Preview">
             <div class="modal-buttons">
-                <button class="btn-primary" onclick="downloadPhoto()">⬇️ Download</button>
-                <button class="btn-secondary" onclick="sharePhoto()">📤 Share</button>
-                <button class="btn-tertiary" onclick="closePhotoModal()">❌ Tutup</button>
+                <button class="btn-primary" id="btnDownloadPhoto">⬇️ Download</button>
+                <button class="btn-secondary" id="btnSharePhoto">📤 Share</button>
+                <button class="btn-tertiary" id="btnClosePhotoModal">❌ Tutup</button>
             </div>
         </div>
     </div>
@@ -127,7 +127,7 @@
             <p>POU AR SOLO membutuhkan akses kamera untuk melacak gerakan wajah dan tangan Anda.</p>
             <p>Data kamera <strong>hanya diproses di perangkat Anda</strong> dan tidak dikirim ke server mana pun.</p>
             <div class="modal-buttons">
-                <button class="btn-primary" onclick="requestCameraPermission()">Izinkan Kamera</button>
+                <button class="btn-primary" id="btnRequestCameraPermission">Izinkan Kamera</button>
             </div>
         </div>
     </div>
@@ -141,13 +141,13 @@
                 <span class="logo-text">POU AR SOLO</span>
             </div>
             <div class="header-actions">
-                <button class="icon-btn" id="micBtn" onclick="toggleVoiceChat()" title="Voice Chat">
+                <button class="icon-btn" id="micBtn" title="Voice Chat">
                     🎤
                 </button>
-                <button class="icon-btn" id="cameraBtn" onclick="takePhoto()" title="Photo Booth">
+                <button class="icon-btn" id="cameraBtn" title="Photo Booth">
                     📷
                 </button>
-                <button class="icon-btn" onclick="toggleSettings()" title="Settings">
+                <button class="icon-btn" title="Settings" id="btnSettingsToggle">
                     ⚙️
                 </button>
             </div>
@@ -158,11 +158,11 @@
             <h3>Pengaturan</h3>
             <div class="setting-item">
                 <span>API Key Gemini</span>
-                <button class="btn-small" onclick="clearApiKey()">Hapus Key</button>
+                <button class="btn-small" id="btnClearApiKey">Hapus Key</button>
             </div>
             <div class="setting-item">
                 <span>Kamera</span>
-                <button class="btn-small" onclick="toggleCamera()">Matikan</button>
+                <button class="btn-small" id="btnToggleCamera">Matikan</button>
             </div>
         </div>
         
@@ -244,10 +244,10 @@
                     
                     <!-- Food Menu -->
                     <div class="food-menu glass" id="foodMenu">
-                        <div class="food-item" data-food="apple" onclick="selectFood('apple')">🍎</div>
-                        <div class="food-item" data-food="pizza" onclick="selectFood('pizza')">🍕</div>
-                        <div class="food-item" data-food="icecream" onclick="selectFood('icecream')">🍦</div>
-                        <div class="food-item" data-food="burger" onclick="selectFood('burger')">🍔</div>
+                        <div class="food-item js-food-item" data-food="apple">🍎</div>
+                        <div class="food-item js-food-item" data-food="pizza">🍕</div>
+                        <div class="food-item js-food-item" data-food="icecream">🍦</div>
+                        <div class="food-item js-food-item" data-food="burger">🍔</div>
                     </div>
                     
                     <!-- Dragged Food -->
@@ -320,19 +320,19 @@
         
         <!-- Navigation -->
         <nav class="glass">
-            <button class="nav-btn active" data-mode="care" onclick="switchMode('care')">
+            <button class="nav-btn js-nav-btn active" data-mode="care">
                 <span class="nav-icon">🏠</span>
                 <span class="nav-label">Care</span>
             </button>
-            <button class="nav-btn" data-mode="sky" onclick="switchMode('sky')">
+            <button class="nav-btn js-nav-btn" data-mode="sky">
                 <span class="nav-icon">☁️</span>
                 <span class="nav-label">Sky</span>
             </button>
-            <button class="nav-btn" data-mode="racing" onclick="switchMode('racing')">
+            <button class="nav-btn js-nav-btn" data-mode="racing">
                 <span class="nav-icon">🏎️</span>
                 <span class="nav-label">Race</span>
             </button>
-            <button class="nav-btn" data-mode="food" onclick="switchMode('food')">
+            <button class="nav-btn js-nav-btn" data-mode="food">
                 <span class="nav-icon">🍎</span>
                 <span class="nav-label">Catch</span>
             </button>

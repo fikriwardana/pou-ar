@@ -17,6 +17,9 @@ const Engine = {
     // Canvas contexts
     trackingCanvas: null,
     trackingCtx: null,
+    ambientCanvas: null,
+    ambientCtx: null,
+    lastAmbientTime: 0,
     
     // Smoothing state
     smoothedLandmarks: null,
@@ -89,31 +92,27 @@ function clamp(value, min, max) {
 // ============================================
 
 function smoothLandmarks(newLandmarks, alpha = Engine.smoothingAlpha) {
-    if (!Engine.smoothedLandmarks) {
-        Engine.smoothedLandmarks = JSON.parse(JSON.stringify(newLandmarks));
+    if (!Engine.smoothedLandmarks || Engine.smoothedLandmarks.length !== newLandmarks.length) {
+        Engine.smoothedLandmarks = newLandmarks.map(p => ({ x: p.x, y: p.y, z: p.z || 0 }));
         return Engine.smoothedLandmarks;
     }
     
     for (let i = 0; i < newLandmarks.length; i++) {
-        if (Engine.smoothedLandmarks[i]) {
-            Engine.smoothedLandmarks[i].x = lerp(
-                Engine.smoothedLandmarks[i].x,
-                newLandmarks[i].x,
-                alpha
-            );
-            Engine.smoothedLandmarks[i].y = lerp(
-                Engine.smoothedLandmarks[i].y,
-                newLandmarks[i].y,
-                alpha
-            );
-            Engine.smoothedLandmarks[i].z = lerp(
-                Engine.smoothedLandmarks[i].z || 0,
-                newLandmarks[i].z || 0,
-                alpha
-            );
-        } else {
-            Engine.smoothedLandmarks[i] = { ...newLandmarks[i] };
-        }
+        Engine.smoothedLandmarks[i].x = lerp(
+            Engine.smoothedLandmarks[i].x,
+            newLandmarks[i].x,
+            alpha
+        );
+        Engine.smoothedLandmarks[i].y = lerp(
+            Engine.smoothedLandmarks[i].y,
+            newLandmarks[i].y,
+            alpha
+        );
+        Engine.smoothedLandmarks[i].z = lerp(
+            Engine.smoothedLandmarks[i].z,
+            newLandmarks[i].z || 0,
+            alpha
+        );
     }
     
     return Engine.smoothedLandmarks;
@@ -206,10 +205,15 @@ function calculateAmbientLight(imageData) {
 function detectPinch(landmarks) {
     const thumbTip = landmarks[4];
     const indexTip = landmarks[8];
+    const wrist = landmarks[0];
+    const middleMcp = landmarks[9];
+
+    const handSize = distance(wrist, middleMcp);
     const pinchDistance = distance(thumbTip, indexTip);
+    const adaptiveThreshold = handSize * 0.5;
     
     return {
-        isPinched: pinchDistance < 0.08,
+        isPinched: pinchDistance < adaptiveThreshold,
         distance: pinchDistance,
         position: {
             x: (thumbTip.x + indexTip.x) / 2,
@@ -296,13 +300,19 @@ function onFaceResults(results) {
         
         
         // Ambient light check
-        if (results.image && Engine.onAmbientLight) {
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = 100;
-            tempCanvas.height = 100;
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.drawImage(results.image, 0, 0, 100, 100);
-            const imageData = tempCtx.getImageData(0, 0, 100, 100);
+        const now = performance.now();
+        if (results.image && Engine.onAmbientLight && (now - Engine.lastAmbientTime > 200)) {
+            Engine.lastAmbientTime = now;
+
+            if (!Engine.ambientCanvas) {
+                Engine.ambientCanvas = document.createElement('canvas');
+                Engine.ambientCanvas.width = 100;
+                Engine.ambientCanvas.height = 100;
+                Engine.ambientCtx = Engine.ambientCanvas.getContext('2d', { willReadFrequently: true });
+            }
+
+            Engine.ambientCtx.drawImage(results.image, 0, 0, 100, 100);
+            const imageData = Engine.ambientCtx.getImageData(0, 0, 100, 100);
             const brightness = calculateAmbientLight(imageData);
             Engine.onAmbientLight(brightness);
         }

@@ -35,7 +35,8 @@ const Game = {
         recognition: null,
         synthesis: window.speechSynthesis,
         isListening: false,
-        isSpeaking: false
+        isSpeaking: false,
+        isStarting: false
     },
     
     // Photo state
@@ -62,6 +63,17 @@ const Game = {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Global Error Boundary
+    window.onerror = function(msg, url, line, col, error) {
+        console.error(`Global Error: ${msg} at ${url}:${line}:${col}`, error);
+        showErrorUI('Terjadi kesalahan tidak terduga. Silakan muat ulang halaman.');
+        return false;
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('Unhandled Promise Rejection:', event.reason);
+        // Silently log or display depending on severity
+    });
+
     initLoading();
     
     // Setup error handler
@@ -108,18 +120,18 @@ function initLoading() {
 
 async function checkCameraPermission() {
     try {
-        const result = await navigator.permissions.query({ name: 'camera' });
-        return result.state === 'granted';
-    } catch (e) {
-        // Fallback - try to get user media
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            stream.getTracks().forEach(track => track.stop());
-            return true;
-        } catch {
-            return false;
+        if (navigator.permissions && navigator.permissions.query) {
+            const result = await navigator.permissions.query({ name: 'camera' });
+            if (result.state === 'granted') return true;
+            if (result.state === 'prompt') return false; // Show modal, let user click button
+            if (result.state === 'denied') return false;
         }
+    } catch (e) {
+        console.warn('Permissions API not fully supported for camera');
     }
+
+    // We cannot reliably know without requesting, so assume false to show modal
+    return false;
 }
 
 async function initializeEngine() {
@@ -171,8 +183,22 @@ async function requestCameraPermission() {
     }
 }
 
+function showErrorUI(message) {
+    // Basic implementation to avoid fully silent failures
+    console.error('Error UI:', message);
+    const existing = document.getElementById('globalError');
+    if (!existing) {
+        const div = document.createElement('div');
+        div.id = 'globalError';
+        div.style = 'position:fixed;top:0;left:0;right:0;background:rgba(255,0,0,0.8);color:#fff;padding:10px;text-align:center;z-index:9999;font-family:sans-serif;font-size:14px;';
+        div.innerHTML = `${message} <button onclick="location.reload()" style="margin-left:10px;padding:2px 8px;cursor:pointer;">Muat Ulang</button>`;
+        document.body.appendChild(div);
+    }
+}
+
 function showError(message) {
     console.error(message);
+    showErrorUI(message);
 }
 
 // ============================================
@@ -181,9 +207,12 @@ function showError(message) {
 
 function loadApiKey() {
     try {
-        Game.apiKey = localStorage.getItem('pouGeminiApiKey');
+        const stored = localStorage.getItem('pouGeminiApiKey');
+        if (stored) {
+            Game.apiKey = atob(stored);
+        }
     } catch (e) {
-        console.warn('localStorage not available');
+        console.warn('localStorage not available or key invalid');
         Game.apiKey = null;
     }
 }
@@ -193,7 +222,8 @@ function saveApiKey() {
     if (input && input.value.trim()) {
         const key = input.value.trim();
         try {
-            localStorage.setItem('pouGeminiApiKey', key);
+            console.warn('Security Warning: API Keys stored in localStorage can be accessed by scripts or extensions. Do not use production keys here.');
+            localStorage.setItem('pouGeminiApiKey', btoa(key));
             Game.apiKey = key;
         } catch (e) {
             console.warn('Failed to save to localStorage');
@@ -227,7 +257,8 @@ function promptForApiKey() {
     const key = prompt('Masukkan Gemini API Key Anda:');
     if (key && key.trim()) {
         try {
-            localStorage.setItem('pouGeminiApiKey', key.trim());
+            console.warn('Security Warning: API Keys stored in localStorage can be accessed by scripts or extensions. Do not use production keys here.');
+            localStorage.setItem('pouGeminiApiKey', btoa(key.trim()));
             Game.apiKey = key.trim();
             initVoice();
             return true;
@@ -254,6 +285,28 @@ function toggleSettings() {
 // ============================================
 
 function setupEventListeners() {
+    // UI Event Bindings
+    document.getElementById('btnSaveApiKey')?.addEventListener('click', saveApiKey);
+    document.getElementById('btnSkipApiKey')?.addEventListener('click', skipApiKey);
+    document.getElementById('btnDownloadPhoto')?.addEventListener('click', downloadPhoto);
+    document.getElementById('btnSharePhoto')?.addEventListener('click', sharePhoto);
+    document.getElementById('btnClosePhotoModal')?.addEventListener('click', closePhotoModal);
+    document.getElementById('btnRequestCameraPermission')?.addEventListener('click', requestCameraPermission);
+    document.getElementById('micBtn')?.addEventListener('click', toggleVoiceChat);
+    document.getElementById('cameraBtn')?.addEventListener('click', takePhoto);
+    document.getElementById('btnSettingsToggle')?.addEventListener('click', toggleSettings);
+    document.getElementById('btnClearApiKey')?.addEventListener('click', clearApiKey);
+    document.getElementById('btnToggleCamera')?.addEventListener('click', toggleCamera);
+
+    // Navigation and Food Items
+    document.querySelectorAll('.js-nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+    });
+
+    document.querySelectorAll('.js-food-item').forEach(item => {
+        item.addEventListener('click', () => selectFood(item.dataset.food));
+    });
+
     // Food drag handling
     document.addEventListener('mousemove', handleFoodDrag);
     document.addEventListener('mouseup', handleFoodDrop);
@@ -280,7 +333,7 @@ function setupEventListeners() {
     // Close settings when clicking outside
     document.addEventListener('click', (e) => {
         const settingsPanel = document.getElementById('settingsPanel');
-        const settingsBtn = document.querySelector('[onclick="toggleSettings()"]');
+        const settingsBtn = document.getElementById('btnSettingsToggle');
         
         if (settingsPanel && settingsPanel.classList.contains('active')) {
             if (!settingsPanel.contains(e.target) && e.target !== settingsBtn) {
@@ -468,12 +521,17 @@ function handleHandsDetected(landmarks, gestures) {
             handY <= pouRect.bottom;
         
         if (isOverPou && !gestures.handPinch) {
-            // Petting detected
-            if (Game.pou.expression !== 'happy') {
-                setPouExpression('happy');
+            const now = Date.now();
+            // Debounce petting effect (e.g. 500ms)
+            if (now - (Game.pou.lastPetTime || 0) > 500) {
+                Game.pou.lastPetTime = now;
+                // Petting detected
+                if (Game.pou.expression !== 'happy') {
+                    setPouExpression('happy');
+                }
                 createSparkles(handX, handY, 'heart');
                 Game.pou.fun = Math.min(100, Game.pou.fun + 5);
-                Game.pou.lastPet = Date.now();
+                Game.pou.lastPet = now;
                 updateStatusBars();
             }
         }
@@ -761,7 +819,7 @@ async function toggleCamera() {
     }
     
     // Update button text
-    const btn = document.querySelector('#settingsPanel button[onclick="toggleCamera()"]');
+    const btn = document.getElementById('btnToggleCamera');
     if (btn) btn.textContent = Game.isCameraOn ? 'Matikan' : 'Nyalakan';
 }
 
@@ -780,11 +838,13 @@ function initVoice() {
         
         Game.voice.recognition.onstart = () => {
             Game.voice.isListening = true;
+            Game.voice.isStarting = false;
             updateVoiceIndicator();
         };
         
         Game.voice.recognition.onend = () => {
             Game.voice.isListening = false;
+            Game.voice.isStarting = false;
             updateVoiceIndicator();
         };
         
@@ -797,8 +857,11 @@ function initVoice() {
         Game.voice.recognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
             Game.voice.isListening = false;
+            Game.voice.isStarting = false;
             updateVoiceIndicator();
         };
+    } else {
+        console.warn('SpeechRecognition API is not supported in this browser.');
     }
 }
 
@@ -812,11 +875,19 @@ function toggleVoiceChat() {
         return;
     }
     
-    if (Game.voice.isListening) {
-        Game.voice.recognition.stop();
+    if (Game.voice.isListening || Game.voice.isStarting) {
+        if (Game.voice.isListening) {
+            Game.voice.recognition.stop();
+        }
     } else {
         if (Game.voice.recognition) {
-            Game.voice.recognition.start();
+            Game.voice.isStarting = true;
+            try {
+                Game.voice.recognition.start();
+            } catch (error) {
+                console.error('Error starting recognition:', error);
+                Game.voice.isStarting = false;
+            }
         } else {
             alert('Speech recognition tidak didukung di browser ini.');
         }

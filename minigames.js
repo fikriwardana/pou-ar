@@ -16,12 +16,13 @@ class MiniGame {
         this.score = 0;
         this.animationId = null;
         this.lastTime = 0;
+        this.resizeHandler = this.resize.bind(this);
     }
     
     init() {
         if (!this.canvas) return;
         this.resize();
-        window.addEventListener('resize', () => this.resize());
+        window.addEventListener('resize', this.resizeHandler);
     }
     
     resize() {
@@ -42,9 +43,15 @@ class MiniGame {
         this.isRunning = false;
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
+            this.animationId = null;
         }
     }
     
+    destroy() {
+        window.removeEventListener('resize', this.resizeHandler);
+        this.stop();
+    }
+
     loop() {
         if (!this.isRunning) return;
         
@@ -55,7 +62,9 @@ class MiniGame {
         this.update(deltaTime);
         this.render();
         
-        this.animationId = requestAnimationFrame(() => this.loop());
+        if (this.isRunning) {
+            this.animationId = requestAnimationFrame(() => this.loop());
+        }
     }
     
     update(deltaTime) {
@@ -95,8 +104,8 @@ class SkyClimber extends MiniGame {
         this.platforms = [];
         this.camera = { y: 0 };
         this.platformSpeed = 100;
-        this.jumpPower = 400;
-        this.gravity = 800;
+        this.jumpPower = 0.8; // Normalized relative unit
+        this.gravity = 1.5;   // Normalized relative unit
         this.spawnTimer = 0;
         this.maxPlatforms = 6;
         this.stars = [];
@@ -147,9 +156,9 @@ class SkyClimber extends MiniGame {
         this.pou.x += gestures.headTilt * deltaTime * 1.5;
         this.pou.x = Math.max(0.1, Math.min(0.9, this.pou.x));
         
-        // Apply gravity
+        // Apply gravity using relative units
         this.pou.velocityY += this.gravity * deltaTime;
-        this.pou.y += (this.pou.velocityY / this.canvas.height) * deltaTime;
+        this.pou.y += this.pou.velocityY * deltaTime;
         
         // Auto-jump when on platform
         this.pou.onPlatform = false;
