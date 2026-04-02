@@ -11,6 +11,7 @@
 const Game = {
     currentMode: 'care',
     isCameraOn: true,
+    isTogglingCamera: false,
     apiKey: null,
     
     // Pou state
@@ -67,6 +68,16 @@ const Game = {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Wait for critical fonts to load
+    if (document.fonts && document.fonts.load) {
+        try {
+            await document.fonts.load('bold 36px Outfit');
+            await document.fonts.load('14px Outfit');
+        } catch (e) {
+            console.warn('Font loading failed or timed out:', e);
+        }
+    }
+
     loadGameState(); // Load persisted stats before mounting UI
 
     // Cache DOM Elements
@@ -138,6 +149,19 @@ async function checkCameraPermission() {
     try {
         if (navigator.permissions && navigator.permissions.query) {
             const result = await navigator.permissions.query({ name: 'camera' });
+
+            // Listen for permission revokes while app is running
+            result.onchange = () => {
+                if (result.state === 'denied') {
+                    console.warn('Camera permission was revoked by the user.');
+                    if (Engine && typeof Engine.stop === 'function') Engine.stop();
+                    Game.isCameraOn = false;
+                    const btn = document.getElementById('btnToggleCamera');
+                    if (btn) btn.textContent = 'Nyalakan';
+                    showCameraModal();
+                }
+            };
+
             if (result.state === 'granted') return true;
             if (result.state === 'prompt') return false; // Show modal, let user click button
             if (result.state === 'denied') return false;
@@ -447,6 +471,11 @@ function switchMode(mode) {
         }
     });
     
+    // Clear care mode particles if switching away
+    if (Game.currentMode !== 'care' && Game.elements.particles) {
+        Game.elements.particles.innerHTML = '';
+    }
+
     // Hide all modes
     document.querySelectorAll('.care-mode, .minigame').forEach(el => {
         el.classList.remove('active');
@@ -888,7 +917,8 @@ async function capturePhoto() {
     try {
         // Capture the game container safely
         const gameContainer = document.getElementById('gameContainer');
-        const canvas = await html2canvas(gameContainer, {
+
+        const capturePromise = html2canvas(gameContainer, {
             backgroundColor: null,
             scale: 2,
             useCORS: true,
@@ -896,6 +926,9 @@ async function capturePhoto() {
             foreignObjectRendering: false
         });
         
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Capture Timeout')), 10000));
+        const canvas = await Promise.race([capturePromise, timeoutPromise]);
+
         // Show preview
         const preview = document.getElementById('photoPreview');
         preview.src = canvas.toDataURL('image/png');
@@ -903,14 +936,16 @@ async function capturePhoto() {
         const modal = document.getElementById('photoModal');
         modal.classList.add('active');
         
-        Game.photo.isCapturing = false;
     } catch (error) {
         console.error('Photo capture failed:', error);
         if (error.message && error.message.includes('CORS')) {
             showErrorUI('Foto gagal: Masalah keamanan CORS. Coba refresh halaman.');
+        } else if (error.message && error.message.includes('Timeout')) {
+            showErrorUI('Foto gagal: Waktu habis, coba lagi nanti.');
         } else {
             showErrorUI('Foto gagal: ' + (error.message || 'Error tidak diketahui'));
         }
+    } finally {
         Game.photo.isCapturing = false;
     }
 }
@@ -954,6 +989,9 @@ async function sharePhoto() {
 }
 
 async function toggleCamera() {
+    if (Game.isTogglingCamera) return;
+    Game.isTogglingCamera = true;
+
     Game.isCameraOn = !Game.isCameraOn;
     
     if (Game.isCameraOn) {
@@ -966,6 +1004,8 @@ async function toggleCamera() {
     // Update button text
     const btn = document.getElementById('btnToggleCamera');
     if (btn) btn.textContent = Game.isCameraOn ? 'Matikan' : 'Nyalakan';
+
+    Game.isTogglingCamera = false;
 }
 
 // ============================================
@@ -1147,7 +1187,7 @@ async function speakResponse(text) {
                 }
             }, 200);
         };
-        
+
         utterance.onend = () => {
             Game.voice.isSpeaking = false;
 

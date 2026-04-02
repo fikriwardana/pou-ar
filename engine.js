@@ -142,7 +142,7 @@ function detectMouthOpen(landmarks) {
 
     const mouthHeightSq = distanceSq(upperLip, lowerLip);
     const mouthWidthSq = distanceSq(leftCorner, rightCorner);
-    
+
     if (mouthWidthSq < 0.000001) return 0;
 
     // Using squared ratio avoids sqrt
@@ -713,7 +713,11 @@ function onError(callback) {
 }
 
 function getGestures() {
-    return { ...Engine.gestures };
+    return {
+        ...Engine.gestures,
+        nosePosition: { ...Engine.gestures.nosePosition },
+        handPosition: { ...Engine.gestures.handPosition }
+    };
 }
 
 function isEngineRunning() {
