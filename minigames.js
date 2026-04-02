@@ -4,6 +4,37 @@
  */
 
 // ============================================
+// Shared Config & Helpers
+// ============================================
+
+const GAME_CONFIG = {
+    SKY_CLIMBER: {
+        PLATFORM_SPEED: 100,
+        JUMP_POWER: 0.8,
+        GRAVITY: 1.5,
+        MAX_PLATFORMS: 6,
+        SPAWN_RATE: 1.5
+    },
+    RACING: {
+        BASE_SPEED: 300,
+        OBSTACLE_CHANCE: 0.02,
+        COIN_CHANCE: 0.015,
+        COLLISION_SLOWDOWN: 50,
+        MIN_SPEED: 200
+    },
+    FOOD_FALL: {
+        INITIAL_SPAWN_RATE: 1.5,
+        MIN_SPAWN_RATE: 0.5,
+        SPAWN_DECAY: 0.02
+    }
+};
+
+function validateGesture(value, defaultValue = 0, min = -1, max = 1) {
+    if (typeof value !== 'number' || isNaN(value)) return defaultValue;
+    return Math.max(min, Math.min(max, value));
+}
+
+// ============================================
 // Base MiniGame Class
 // ============================================
 
@@ -117,11 +148,11 @@ class SkyClimber extends MiniGame {
         };
         this.platforms = [];
         this.camera = { y: 0 };
-        this.platformSpeed = 100;
-        this.jumpPower = 0.8; // Normalized relative unit
-        this.gravity = 1.5;   // Normalized relative unit
+        this.platformSpeed = GAME_CONFIG.SKY_CLIMBER.PLATFORM_SPEED;
+        this.jumpPower = GAME_CONFIG.SKY_CLIMBER.JUMP_POWER;
+        this.gravity = GAME_CONFIG.SKY_CLIMBER.GRAVITY;
         this.spawnTimer = 0;
-        this.maxPlatforms = 6;
+        this.maxPlatforms = GAME_CONFIG.SKY_CLIMBER.MAX_PLATFORMS;
         this.stars = [];
     }
     
@@ -167,9 +198,11 @@ class SkyClimber extends MiniGame {
         const gestures = window.Engine && typeof window.Engine.getGestures === 'function'
             ? window.Engine.getGestures()
             : { headTilt: 0 };
+
+        const headTilt = validateGesture(gestures.headTilt, 0, -1, 1);
         
         // Move Pou horizontally based on head tilt
-        this.pou.x += gestures.headTilt * deltaTime * 1.5;
+        this.pou.x += headTilt * deltaTime * 1.5;
         this.pou.x = Math.max(0.1, Math.min(0.9, this.pou.x));
         
         // Apply gravity using relative units
@@ -407,13 +440,14 @@ class HeadRacing extends MiniGame {
             };
         
         // Steer with nose X position
-        const targetX = gestures.nosePosition.x;
+        const targetX = validateGesture(gestures.nosePosition.x, 0.5, 0, 1);
         this.pou.x += (targetX - this.pou.x) * deltaTime * 5;
         this.pou.x = Math.max(0.15, Math.min(0.85, this.pou.x));
         
         // Boost with eyebrow raise
         const wasBoosting = this.boostActive;
-        this.boostActive = gestures.eyebrowRaise > 0.6;
+        const eyebrowRaise = validateGesture(gestures.eyebrowRaise, 0, 0, 1);
+        this.boostActive = eyebrowRaise > 0.6;
         
         if (this.boostActive) {
             this.pou.boostMultiplier = 2;
@@ -468,7 +502,7 @@ class HeadRacing extends MiniGame {
         }
         
         // Spawn obstacles
-        if (Math.random() < 0.02 * this.pou.boostMultiplier) {
+        if (Math.random() < GAME_CONFIG.RACING.OBSTACLE_CHANCE * this.pou.boostMultiplier) {
             const lane = Math.floor(Math.random() * 3);
             const laneWidth = this.track.width / 3;
             const x = 0.5 - this.track.width / 2 + laneWidth * (lane + 0.5);
@@ -482,7 +516,7 @@ class HeadRacing extends MiniGame {
         }
         
         // Spawn coins
-        if (Math.random() < 0.015) {
+        if (Math.random() < GAME_CONFIG.RACING.COIN_CHANCE) {
             const lane = Math.floor(Math.random() * 3);
             const laneWidth = this.track.width / 3;
             const x = 0.5 - this.track.width / 2 + laneWidth * (lane + 0.5);
@@ -503,7 +537,7 @@ class HeadRacing extends MiniGame {
             if (!obstacle.hit && dx < 0.06 && dy < 0.08) {
                 // Hit obstacle - slow down
                 obstacle.hit = true;
-                this.pou.speed = Math.max(200, this.pou.speed - 50);
+                this.pou.speed = Math.max(GAME_CONFIG.RACING.MIN_SPEED, this.pou.speed - GAME_CONFIG.RACING.COLLISION_SLOWDOWN);
                 this.createExplosion(obstacle.x, obstacle.y);
             }
         }
@@ -815,12 +849,12 @@ class FoodFall extends MiniGame {
             };
         
         // Move Pou with nose
-        const targetX = gestures.nosePosition.x;
+        const targetX = validateGesture(gestures.nosePosition.x, 0.5, 0, 1);
         this.pou.x += (targetX - this.pou.x) * deltaTime * 8;
         this.pou.x = Math.max(0.1, Math.min(0.9, this.pou.x));
         
         // Mouth open detection
-        this.pou.mouthOpen = gestures.mouthOpen;
+        this.pou.mouthOpen = validateGesture(gestures.mouthOpen, 0, 0, 1);
         this.pou.catchRadius = 0.08 + this.pou.mouthOpen * 0.06;
         
         // Update UI indicator
@@ -849,7 +883,7 @@ class FoodFall extends MiniGame {
         this.spawnTimer += deltaTime;
         if (this.spawnTimer > this.spawnRate) {
             this.spawnTimer = 0;
-            this.spawnRate = Math.max(0.5, this.spawnRate - 0.02);
+            this.spawnRate = Math.max(GAME_CONFIG.FOOD_FALL.MIN_SPAWN_RATE, this.spawnRate - GAME_CONFIG.FOOD_FALL.SPAWN_DECAY);
             
             this.fallingFood.push({
                 x: 0.1 + Math.random() * 0.8,
@@ -1138,7 +1172,7 @@ const MiniGames = {
     
     stop() {
         if (this.currentGame) {
-            this.currentGame.stop();
+            this.currentGame.destroy();
             this.currentGame = null;
         }
     },

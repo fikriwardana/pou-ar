@@ -53,6 +53,7 @@ const Engine = {
     
     // RAF loop
     rafId: null,
+    isRafRunning: false,
     lastRafTime: 0,
     
     // Page visibility
@@ -141,9 +142,9 @@ function detectMouthOpen(landmarks) {
 
     const mouthHeightSq = distanceSq(upperLip, lowerLip);
     const mouthWidthSq = distanceSq(leftCorner, rightCorner);
-
-    if (mouthWidthSq < 0.000001) return 0;
     
+    if (mouthWidthSq < 0.000001) return 0;
+
     // Using squared ratio avoids sqrt
     const ratioSq = mouthHeightSq / mouthWidthSq;
     // Original ratio approx 0.1 to 0.5 maps to ratioSq 0.01 to 0.25
@@ -166,12 +167,12 @@ function detectEyebrowRaise(landmarks) {
 
     const rightEyeHeightSq = distanceSq(rightEyeTop, rightEyeBottom);
     const rightBrowDistanceSq = distanceSq(rightEyebrow, rightEyeTop);
-
-    if (leftEyeHeightSq < 0.000001 || rightEyeHeightSq < 0.000001) return 0;
     
+    if (leftEyeHeightSq < 0.000001 || rightEyeHeightSq < 0.000001) return 0;
+
     const leftRaiseSq = leftBrowDistanceSq / leftEyeHeightSq;
     const rightRaiseSq = rightBrowDistanceSq / rightEyeHeightSq;
-    
+
     const avgRaiseSq = (leftRaiseSq + rightRaiseSq) / 2;
     // Original raise 0.8 to 1.3 maps to sq approx 0.64 to 1.69
     return clamp((avgRaiseSq - 0.64) / 1.05, 0, 1);
@@ -198,11 +199,16 @@ function calculateEyeDistance(landmarks) {
     return distance(leftEye, rightEye); // Keep distance here as it might be used directly for scaling
 }
 
+/**
+ * Returns nose position with X mirrored to match mirrored video feed
+ * X: 0 = right, 1 = left (mirrored)
+ * Y: 0 = top, 1 = bottom
+ */
 function getNosePosition(landmarks) {
     const nose = landmarks[1];
-    if (!nose) return { x: 0.5, y: 0.5 };
+    if (!nose) return { x: 0.5, y: 0.5, _isMirrored: true };
     // Mirror X coordinate since camera feed is mirrored
-    return { x: 1 - nose.x, y: nose.y };
+    return { x: 1 - nose.x, y: nose.y, _isMirrored: true };
 }
 
 function calculateAmbientLight(imageData) {
@@ -370,11 +376,14 @@ function onHandsResults(results) {
 // ============================================
 
 function startRafLoop() {
-    if (Engine.rafId) return;
+    if (Engine.isRafRunning) return;
+    Engine.isRafRunning = true;
     
     function rafLoop(timestamp) {
         if (!Engine.isVisible) {
-            Engine.rafId = requestAnimationFrame(rafLoop);
+            if (Engine.isRafRunning) {
+                Engine.rafId = requestAnimationFrame(rafLoop);
+            }
             return;
         }
         
@@ -452,13 +461,18 @@ function startRafLoop() {
             console.error('Error in RAF loop:', e);
         }
         
-        Engine.rafId = requestAnimationFrame(rafLoop);
+        if (Engine.isRafRunning) {
+            Engine.rafId = requestAnimationFrame(rafLoop);
+        }
     }
     
-    Engine.rafId = requestAnimationFrame(rafLoop);
+    if (Engine.isRafRunning) {
+        Engine.rafId = requestAnimationFrame(rafLoop);
+    }
 }
 
 function stopRafLoop() {
+    Engine.isRafRunning = false;
     if (Engine.rafId) {
         cancelAnimationFrame(Engine.rafId);
         Engine.rafId = null;

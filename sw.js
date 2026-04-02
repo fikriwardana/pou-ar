@@ -5,14 +5,16 @@
 
 const CACHE_NAME = 'pou-ar-solo-v1';
 const STATIC_ASSETS = [
-    '/',
-    '/index.html',
-    '/style.css',
-    '/engine.js',
-    '/minigames.js',
-    '/game.js',
-    '/manifest.json'
+    { url: '/', hash: '' }, // Root doesn't need strict content hash
+    { url: '/index.html', hash: '5ef33122119542c310614c71d203be66c54ee4afd6079e9f7e66937cdc02da3b6a4efa89dbf71a46713b1f5b76e8cc1f' },
+    { url: '/style.css', hash: '8a796a6408cb18694680a73f2bddaeae3173454aa52967bfcdfd59dacdeaa29b4b0a0775053902d6519ce7c422bc2cb6' },
+    { url: '/engine.js', hash: 'a445a25e8f24d6a99e75b5fdb729bf82fd3b3b188c94f39b4a94f47ff86c7d5741499956d1c1de09ba7c98454ea8aba2' },
+    { url: '/minigames.js', hash: '390404d01b04a753a1f296140c4957531dc7f63dd8fa69941d16000873e63dca624852c2aa5b922a0bf51f1d61334619' },
+    { url: '/game.js', hash: 'fb54446e09daaf9ad920b7040d3ed694cea879d2c206c08b0170d32bdd6af48b175caa7328a4834665eaca9bca039e94' },
+    { url: '/manifest.json', hash: 'f3b17d28d9e3041ca7f125990dc4a110f21cc803c37042d3490bcafa10e099ca34731989c171207b01f910f3a718620f' }
 ];
+
+const STATIC_URLS = STATIC_ASSETS.map(a => a.url);
 
 const CDN_ASSETS = [
     'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.js',
@@ -23,6 +25,25 @@ const CDN_ASSETS = [
     'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap'
 ];
 
+async function verifyAndCache(cache, asset) {
+    if (!asset.hash) {
+        return fetch(asset.url).then(response => cache.put(asset.url, response));
+    }
+
+    const response = await fetch(asset.url);
+    const buffer = await response.clone().arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-384', buffer);
+    const hashHex = Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+    if (hashHex !== asset.hash) {
+        throw new Error(`Integrity check failed for ${asset.url}`);
+    }
+
+    return cache.put(asset.url, response);
+}
+
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
     console.log('[SW] Installing...');
@@ -30,8 +51,8 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then((cache) => {
-                console.log('[SW] Caching static assets');
-                return cache.addAll(STATIC_ASSETS);
+                console.log('[SW] Caching static assets with SRI validation');
+                return Promise.all(STATIC_ASSETS.map(asset => verifyAndCache(cache, asset)));
             })
             .then(() => {
                 // Try to cache CDN assets (may fail due to CORS)
@@ -84,7 +105,7 @@ self.addEventListener('fetch', (event) => {
     if (url.protocol === 'chrome-extension:') return;
     
     // Strategy: Cache First for static assets, Network First for API calls
-    if (STATIC_ASSETS.includes(url.pathname) || CDN_ASSETS.includes(request.url)) {
+    if (STATIC_URLS.includes(url.pathname) || CDN_ASSETS.includes(request.url)) {
         // Cache First
         event.respondWith(
             caches.match(request)

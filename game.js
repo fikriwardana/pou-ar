@@ -34,6 +34,7 @@ const Game = {
     voice: {
         recognition: null,
         synthesis: typeof window !== 'undefined' && window.speechSynthesis ? window.speechSynthesis : null,
+        audioCtx: null,
         isListening: false,
         isSpeaking: false,
         isStarting: false
@@ -220,28 +221,67 @@ function showError(message) {
 // Secure Gemini API Key Management
 // ============================================
 
+async function encryptKey(key, password) {
+    const encoder = new TextEncoder();
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const cryptoKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']),
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, encoder.encode(key));
+    return {
+        salt: Array.from(salt),
+        iv: Array.from(iv),
+        encrypted: Array.from(new Uint8Array(encrypted))
+    };
+}
+
+async function decryptKey(data, password) {
+    const encoder = new TextEncoder();
+    const salt = new Uint8Array(data.salt);
+    const iv = new Uint8Array(data.iv);
+    const encrypted = new Uint8Array(data.encrypted);
+
+    const cryptoKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']),
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+    );
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, encrypted);
+    return new TextDecoder().decode(decrypted);
+}
+
 function loadApiKey() {
-    try {
-        const stored = localStorage.getItem('pouGeminiApiKey');
-        if (stored) {
-            Game.apiKey = atob(stored);
-        }
-    } catch (e) {
-        console.warn('localStorage not available or key invalid');
+    // API key is no longer loaded blindly; must be decrypted first upon demand
+    const stored = localStorage.getItem('pouGeminiApiKey');
+    if (!stored) {
         Game.apiKey = null;
     }
 }
 
-function saveApiKey() {
+async function saveApiKey() {
     const input = document.getElementById('apiKeyInput');
     if (input && input.value.trim()) {
         const key = input.value.trim();
+        const password = prompt('Buat password untuk mengenkripsi API Key Anda secara lokal:');
+        if (!password) {
+            alert('Password diperlukan untuk menyimpan API Key dengan aman.');
+            return;
+        }
+
         try {
-            console.warn('Security Warning: API Keys stored in localStorage can be accessed by scripts or extensions. Do not use production keys here.');
-            localStorage.setItem('pouGeminiApiKey', btoa(key));
+            const encryptedData = await encryptKey(key, password);
+            localStorage.setItem('pouGeminiApiKey', JSON.stringify(encryptedData));
             Game.apiKey = key;
         } catch (e) {
-            console.warn('Failed to save to localStorage');
+            console.error('Failed to encrypt/save API Key:', e);
+            showErrorUI('Gagal menyimpan API Key dengan aman.');
         }
         
         const modal = document.getElementById('apiKeyModal');
@@ -267,18 +307,42 @@ function clearApiKey() {
     alert('API Key telah dihapus');
 }
 
-function promptForApiKey() {
-    // Use native browser prompt for security
+async function promptForApiKey() {
+    const stored = localStorage.getItem('pouGeminiApiKey');
+    if (stored) {
+        // Exists, so prompt for password to decrypt
+        const password = prompt('Masukkan password untuk mendekripsi API Key Anda:');
+        if (password) {
+            try {
+                const parsed = JSON.parse(stored);
+                Game.apiKey = await decryptKey(parsed, password);
+                initVoice();
+                return true;
+            } catch (e) {
+                alert('Password salah atau key rusak.');
+                return false;
+            }
+        }
+        return false;
+    }
+
+    // Doesn't exist, prompt for new key
     const key = prompt('Masukkan Gemini API Key Anda:');
     if (key && key.trim()) {
+        const password = prompt('Buat password untuk mengenkripsi API Key Anda secara lokal:');
+        if (!password) {
+            alert('Batal menyimpan API Key.');
+            return false;
+        }
         try {
-            console.warn('Security Warning: API Keys stored in localStorage can be accessed by scripts or extensions. Do not use production keys here.');
-            localStorage.setItem('pouGeminiApiKey', btoa(key.trim()));
+            const encryptedData = await encryptKey(key.trim(), password);
+            localStorage.setItem('pouGeminiApiKey', JSON.stringify(encryptedData));
             Game.apiKey = key.trim();
             initVoice();
             return true;
         } catch (e) {
-            console.warn('Failed to save API key');
+            console.error('Failed to encrypt/save API Key:', e);
+            showErrorUI('Gagal menyimpan API Key.');
         }
     }
     return false;
@@ -344,6 +408,12 @@ function setupEventListeners() {
     const handleResize = () => MiniGames.resize();
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
+
+    // Cleanup on unmount
+    window.addEventListener('beforeunload', () => {
+        if (Game.gameLoopId) clearInterval(Game.gameLoopId);
+        saveGameState();
+    });
     
     // Close settings when clicking outside
     document.addEventListener('click', (e) => {
@@ -816,13 +886,14 @@ async function capturePhoto() {
     }, 150);
     
     try {
-        // Capture the game container
+        // Capture the game container safely
         const gameContainer = document.getElementById('gameContainer');
         const canvas = await html2canvas(gameContainer, {
             backgroundColor: null,
             scale: 2,
             useCORS: true,
-            allowTaint: true
+            allowTaint: false,
+            foreignObjectRendering: false
         });
         
         // Show preview
@@ -835,7 +906,11 @@ async function capturePhoto() {
         Game.photo.isCapturing = false;
     } catch (error) {
         console.error('Photo capture failed:', error);
-        alert('Gagal mengambil foto. Silakan coba lagi.');
+        if (error.message && error.message.includes('CORS')) {
+            showErrorUI('Foto gagal: Masalah keamanan CORS. Coba refresh halaman.');
+        } else {
+            showErrorUI('Foto gagal: ' + (error.message || 'Error tidak diketahui'));
+        }
         Game.photo.isCapturing = false;
     }
 }
@@ -897,7 +972,20 @@ async function toggleCamera() {
 // Gemini Voice Integration
 // ============================================
 
+function cleanupVoice() {
+    if (Game.voice.recognition) {
+        Game.voice.recognition.abort();
+        Game.voice.recognition.onstart = null;
+        Game.voice.recognition.onend = null;
+        Game.voice.recognition.onresult = null;
+        Game.voice.recognition.onerror = null;
+        Game.voice.recognition = null;
+    }
+}
+
 function initVoice() {
+    cleanupVoice(); // Prevent memory leak on re-init
+
     // Initialize speech recognition
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -935,10 +1023,11 @@ function initVoice() {
     }
 }
 
-function toggleVoiceChat() {
+async function toggleVoiceChat() {
     if (!Game.apiKey) {
         // Try to get from prompt
-        if (promptForApiKey()) {
+        const success = await promptForApiKey();
+        if (success) {
             // Retry after getting key
             setTimeout(() => toggleVoiceChat(), 500);
         }
@@ -977,6 +1066,12 @@ function updateVoiceIndicator() {
     }
 }
 
+function sanitizeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML.replace(/["']/g, '&quot;');
+}
+
 async function handleVoiceInput(text) {
     if (!Game.apiKey) return;
     
@@ -1002,7 +1097,7 @@ async function handleVoiceInput(text) {
         
         if (data.candidates && data.candidates[0].content.parts[0].text) {
             const reply = data.candidates[0].content.parts[0].text;
-            speakResponse(reply);
+            speakResponse(sanitizeHTML(reply));
         }
     } catch (error) {
         console.error('Gemini API error:', error);
@@ -1010,49 +1105,74 @@ async function handleVoiceInput(text) {
     }
 }
 
-function speakResponse(text) {
+async function speakResponse(text) {
     if (!Game.voice.synthesis) return;
     
+    // Resume audio context if suspended (browser autoplay policy)
+    if (window.AudioContext || window.webkitAudioContext) {
+        if (!Game.voice.audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            Game.voice.audioCtx = new AudioContextClass();
+        }
+
+        if (Game.voice.audioCtx.state === 'suspended') {
+            try {
+                await Game.voice.audioCtx.resume();
+            } catch (e) {
+                console.warn('Failed to resume AudioContext', e);
+            }
+        }
+    }
+
     // Cancel any ongoing speech
     Game.voice.synthesis.cancel();
     
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'id-ID';
-    utterance.rate = 1.1;
-    utterance.pitch = 1.2;
-    
-    // Lip sync animation
-    let lipSyncInterval = null;
-    
-    utterance.onstart = () => {
-        Game.voice.isSpeaking = true;
+    return new Promise((resolve, reject) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'id-ID';
+        utterance.rate = 1.1;
+        utterance.pitch = 1.2;
+
+        // Lip sync animation
+        let lipSyncInterval = null;
+
+        utterance.onstart = () => {
+            Game.voice.isSpeaking = true;
+
+            // Start lip sync
+            lipSyncInterval = setInterval(() => {
+                const pou = Game.elements.pou;
+                if (pou) {
+                    pou.classList.toggle('eating');
+                }
+            }, 200);
+        };
         
-        // Start lip sync
-        lipSyncInterval = setInterval(() => {
-            const pou = document.getElementById('pou');
-            if (pou) {
-                pou.classList.toggle('eating');
+        utterance.onend = () => {
+            Game.voice.isSpeaking = false;
+
+            // Stop lip sync
+            if (lipSyncInterval) {
+                clearInterval(lipSyncInterval);
             }
-        }, 200);
-    };
-    
-    utterance.onend = () => {
-        Game.voice.isSpeaking = false;
+
+            // Reset expression
+            const pou = Game.elements.pou;
+            if (pou && Game.currentMode === 'care') {
+                pou.classList.remove('eating');
+                pou.classList.add('happy');
+            }
+            resolve();
+        };
         
-        // Stop lip sync
-        if (lipSyncInterval) {
-            clearInterval(lipSyncInterval);
-        }
+        utterance.onerror = (e) => {
+            Game.voice.isSpeaking = false;
+            if (lipSyncInterval) clearInterval(lipSyncInterval);
+            reject(e);
+        };
         
-        // Reset expression
-        const pou = document.getElementById('pou');
-        if (pou && Game.currentMode === 'care') {
-            pou.classList.remove('eating');
-            pou.classList.add('happy');
-        }
-    };
-    
-    Game.voice.synthesis.speak(utterance);
+        Game.voice.synthesis.speak(utterance);
+    });
 }
 
 // ============================================
@@ -1112,20 +1232,3 @@ function createSparkles(x, y, type = 'random') {
 // ============================================
 
 window.Game = Game;
-window.switchMode = switchMode;
-window.setPouExpression = setPouExpression;
-window.selectFood = selectFood;
-window.feedPou = feedPou;
-window.takePhoto = takePhoto;
-window.closePhotoModal = closePhotoModal;
-window.downloadPhoto = downloadPhoto;
-window.sharePhoto = sharePhoto;
-window.toggleCamera = toggleCamera;
-window.toggleVoiceChat = toggleVoiceChat;
-window.toggleSettings = toggleSettings;
-window.saveApiKey = saveApiKey;
-window.skipApiKey = skipApiKey;
-window.clearApiKey = clearApiKey;
-window.promptForApiKey = promptForApiKey;
-window.requestCameraPermission = requestCameraPermission;
-window.createSparkles = createSparkles;
